@@ -8,6 +8,7 @@ All integrations are optional and live under `tensorgate.integrations`.
 
 - `to_wavebridge_payload(tensor)` → normalized numerical array + TensorGate metadata
 - `from_wavebridge_payload(payload)` → re-describe recovered array
+- `compare_roundtrip(original, recovered)` → explicit error metrics
 
 Does **not** implement WAV, optical modulation, or channel simulation.
 
@@ -27,5 +28,17 @@ Treats arrays as numerical state only. No physics imports.
 
 - `validate_inputs(*tensors, specs=...)`
 - `validate_output(tensor, expected=...)`
+- `prepare_input(tensor, target=...)`
+- `compare_tensors(a, b)`
 
 Wraps the numerical boundary around an operator invocation. Wilson–Dirac math stays in `metafield-operator-abi`.
+
+## Dependency rule
+
+```
+WaveBridge ──optional──→ TensorGate
+Operator ABI ──optional──→ TensorGate
+TensorGate ──never──→ WaveBridge | Operator ABI | MetaField
+```
+
+**TensorGate owns the numbers. The receiving system owns what those numbers mean.**
