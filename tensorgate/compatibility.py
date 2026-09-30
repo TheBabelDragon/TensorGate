@@ -19,7 +19,16 @@ from .transform import convert_dtype, clip
 
 @dataclass
 class CompatibilityReport:
+    """Structured compatibility result.
+
+    status:
+      - "compatible"   : already satisfies target (no transform needed)
+      - "adaptable"    : can be made compatible via recorded transforms
+      - "incompatible" : hard failure (e.g. shape/rank mismatch)
+    """
+
     compatible: bool
+    status: str = "compatible"
     issues: List[str] = field(default_factory=list)
     transformations: List[str] = field(default_factory=list)
     provenance: ProvenanceRecord = field(default_factory=ProvenanceRecord)
@@ -29,6 +38,7 @@ class CompatibilityReport:
     def to_dict(self) -> dict:
         return {
             "compatible": self.compatible,
+            "status": self.status,
             "issues": self.issues,
             "transformations": self.transformations,
             "provenance": self.provenance.to_list(),
@@ -77,7 +87,19 @@ def check_compatibility(
     if not target.allow_inf and desc is not None and (desc.pos_inf_count + desc.neg_inf_count) > 0:
         issues.append("Infinities present but target.allow_inf=False")
 
-    return CompatibilityReport(compatible=len(issues) == 0, issues=issues)
+    hard = [i for i in issues if "shape mismatch" in i or "rank mismatch" in i]
+    if not issues:
+        status = "compatible"
+    elif hard:
+        status = "incompatible"
+    else:
+        status = "adaptable"
+
+    return CompatibilityReport(
+        compatible=len(issues) == 0,
+        status=status,
+        issues=issues,
+    )
 
 
 def compare(original: ArrayLike, reconstructed: ArrayLike) -> Dict[str, Any]:
@@ -211,8 +233,17 @@ def adapt(
     except Exception:
         err = {}
 
+    hard = [i for i in issues if "shape mismatch" in i or "rank mismatch" in i]
+    if hard:
+        status = "incompatible"
+    elif transforms or issues:
+        status = "adaptable"
+    else:
+        status = "compatible"
+
     report = CompatibilityReport(
         compatible=len(issues) == 0,
+        status=status,
         issues=issues,
         transformations=transforms,
         provenance=prov,
