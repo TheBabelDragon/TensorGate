@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tensorgate"
+version = "0.1.0"
+description = "Canonical numerical compatibility boundary for tensors and neural-network weights across the BabelDragon compute stack."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "TheBabelDragon" }]
+keywords = ["tensor", "compatibility", "quantization", "normalization", "provenance"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.22",
+]
+
+[project.optional-dependencies]
+torch = ["torch"]
+dev = ["pytest>=7", "pytest-cov"]
+
+[project.scripts]
+tensorgate = "tensorgate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/TheBabelDragon/TensorGate"
+Repository = "https://github.com/TheBabelDragon/TensorGate"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tensorgate*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
