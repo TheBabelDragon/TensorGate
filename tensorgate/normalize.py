@@ -32,6 +32,7 @@ def normalize(
       - none         : identity (still records a no-op)
 
     Never silent. Metadata always describes source range, scale, offset, clipping.
+    Degenerate cases (all-zero, constant, empty) are handled without producing NaNs.
     """
     arr = as_numpy(tensor, copy=True)
     desc = analyze(arr)
@@ -50,8 +51,14 @@ def normalize(
         out = arr
     elif method in ("maxabs", "max-absolute", "max_absolute"):
         abs_max = desc.abs_max if desc.abs_max is not None else 0.0
-        scale = 1.0 / max(abs_max, eps)
-        out = arr.astype(np.float64) * scale
+        if abs_max < eps:
+            scale = 1.0
+            out = arr.astype(np.float64)
+            degenerate = True
+        else:
+            scale = 1.0 / abs_max
+            out = arr.astype(np.float64) * scale
+            degenerate = False
         meta = {
             "method": "maxabs",
             "source_abs_max": abs_max,
@@ -59,32 +66,51 @@ def normalize(
             "offset": 0.0,
             "clipped": 0,
             "target_range": [-1.0, 1.0],
+            "degenerate": degenerate,
         }
     elif method in ("standard", "zscore", "standard-score"):
         mean = desc.mean if desc.mean is not None else 0.0
-        std = desc.std if desc.std is not None else 1.0
-        scale = 1.0 / max(std, eps)
-        out = (arr.astype(np.float64) - mean) * scale
+        std = desc.std if desc.std is not None else 0.0
+        if std < eps:
+            out = np.zeros_like(arr, dtype=np.float64)
+            scale = 0.0
+            offset = 0.0
+            degenerate = True
+        else:
+            scale = 1.0 / std
+            out = (arr.astype(np.float64) - mean) * scale
+            offset = -mean * scale
+            degenerate = False
         meta = {
             "method": "standard",
             "source_mean": mean,
             "source_std": std,
             "scale": scale,
-            "offset": -mean * scale,
+            "offset": offset,
             "clipped": 0,
+            "degenerate": degenerate,
         }
     elif method in ("range", "affine", "minmax"):
         src_min = desc.min if desc.min is not None else 0.0
         src_max = desc.max if desc.max is not None else 1.0
-        span = max(src_max - src_min, eps)
-        scale = (target_max - target_min) / span
-        offset = target_min - src_min * scale
-        out = arr.astype(np.float64) * scale + offset
-        clipped = 0
-        if clip_outliers:
-            before = out.copy()
-            out = np.clip(out, target_min, target_max)
-            clipped = int(np.sum(before != out))
+        span = src_max - src_min
+        if span < eps:
+            mid = 0.5 * (target_min + target_max)
+            out = np.full_like(arr, mid, dtype=np.float64)
+            scale = 0.0
+            offset = mid
+            clipped = 0
+            degenerate = True
+        else:
+            scale = (target_max - target_min) / span
+            offset = target_min - src_min * scale
+            out = arr.astype(np.float64) * scale + offset
+            clipped = 0
+            degenerate = False
+            if clip_outliers:
+                before = out.copy()
+                out = np.clip(out, target_min, target_max)
+                clipped = int(np.sum(before != out))
         meta = {
             "method": method,
             "source_min": src_min,
@@ -94,20 +120,28 @@ def normalize(
             "scale": scale,
             "offset": offset,
             "clipped": clipped,
+            "degenerate": degenerate,
         }
     elif method == "symmetric":
         abs_max = desc.abs_max if desc.abs_max is not None else 0.0
-        half = 0.5 * (target_max - target_min)
-        scale = half / max(abs_max, eps)
-        out = arr.astype(np.float64) * scale
         mid = 0.5 * (target_min + target_max)
-        if mid != 0.0:
-            out = out + mid
-        clipped = 0
-        if clip_outliers:
-            before = out.copy()
-            out = np.clip(out, target_min, target_max)
-            clipped = int(np.sum(before != out))
+        half = 0.5 * (target_max - target_min)
+        if abs_max < eps:
+            out = np.full_like(arr, mid, dtype=np.float64) if arr.size else arr.astype(np.float64)
+            scale = 0.0
+            degenerate = True
+            clipped = 0
+        else:
+            scale = half / abs_max
+            out = arr.astype(np.float64) * scale
+            if mid != 0.0:
+                out = out + mid
+            clipped = 0
+            degenerate = False
+            if clip_outliers:
+                before = out.copy()
+                out = np.clip(out, target_min, target_max)
+                clipped = int(np.sum(before != out))
         meta = {
             "method": "symmetric",
             "source_abs_max": abs_max,
@@ -116,6 +150,7 @@ def normalize(
             "scale": scale,
             "offset": mid if mid != 0 else 0.0,
             "clipped": clipped,
+            "degenerate": degenerate,
         }
     else:
         raise ValueError(
