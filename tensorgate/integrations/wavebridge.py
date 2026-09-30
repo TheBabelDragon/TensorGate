@@ -1,11 +1,19 @@
 """Thin WaveBridge adapter.
 
 TensorGate does NOT know about WAV, lasers, PAM, BPW34, or optical modulation.
-This adapter only:
-  Tensor → TensorGate descriptor / transformation → WaveBridge-compatible numerical payload
-and the reverse.
+This adapter only prepares / describes numerical arrays at the boundary:
 
-WaveBridge remains the owner of physical transport.
+    Tensor
+      → TensorGate analysis
+      → explicit normalization / adaptation
+      → numerical payload for WaveBridge
+      → (WaveBridge owns transport)
+
+    WaveBridge recovered numerical payload
+      → TensorGate description
+      → comparison / provenance
+
+WaveBridge remains the owner of physical transport and PCM encoding.
 """
 
 from __future__ import annotations
@@ -14,10 +22,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
+from ..compatibility import compare
 from ..inspect import analyze
 from ..normalize import normalize
-from ..tensor import as_numpy, ArrayLike, TensorSpec
-from ..compatibility import adapt, compare
+from ..tensor import ArrayLike, as_numpy
 
 
 def to_wavebridge_payload(
@@ -28,22 +36,33 @@ def to_wavebridge_payload(
     target_max: float = 1.0,
     dtype: str = "float32",
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
-    """Prepare a tensor as a numerical payload suitable for WaveBridge transport.
+    """Prepare a tensor as a numerical payload suitable for WaveBridge.
 
-    Returns normalized array + full TensorGate metadata (descriptor, provenance).
-    Caller is responsible for handing the array to WaveBridge.
+    Returns (normalized_array, metadata) where metadata carries:
+      - source_descriptor / tensorgate_descriptor
+      - full normalization provenance
+      - content hashes
+
+    Caller hands the array to WaveBridge (encode_field / encode_field_state).
+    No PCM, WAV, or physical encoding is performed here.
     """
     arr = as_numpy(tensor)
-    desc = analyze(arr)
-    out, meta = normalize(arr, method=method, target_min=target_min, target_max=target_max)
-    out = out.astype(np.dtype(dtype))
-    payload_meta = {
-        "tensorgate_descriptor": analyze(out).to_dict(),
-        "source_descriptor": desc.to_dict(),
-        "normalization": meta,
+    source_desc = analyze(arr)
+    out, norm_meta = normalize(
+        arr, method=method, target_min=target_min, target_max=target_max
+    )
+    out = out.astype(np.dtype(dtype), copy=False)
+    payload_desc = analyze(out)
+    meta: Dict[str, Any] = {
+        "source_descriptor": source_desc.to_dict(),
+        "tensorgate_descriptor": payload_desc.to_dict(),
+        "normalization": {
+            k: v for k, v in norm_meta.items() if k != "output_descriptor"
+        },
+        "payload_dtype": str(out.dtype),
         "note": "Numerical payload only. Physical encoding is WaveBridge's concern.",
     }
-    return out, payload_meta
+    return out, meta
 
 
 def from_wavebridge_payload(
@@ -53,13 +72,21 @@ def from_wavebridge_payload(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """Accept a numerical array recovered from WaveBridge and re-describe it.
 
-    Does not attempt to invert physical channel effects — that is WaveBridge.
+    Does not invert physical channel effects — that is WaveBridge.
     """
     arr = as_numpy(payload)
     desc = analyze(arr)
-    meta = {
+    meta: Dict[str, Any] = {
         "tensorgate_descriptor": desc.to_dict(),
         "source_meta": source_meta or {},
         "note": "Recovered numerical array. Channel inversion belongs to WaveBridge.",
     }
     return arr, meta
+
+
+def compare_roundtrip(
+    original: ArrayLike,
+    recovered: ArrayLike,
+) -> Dict[str, Any]:
+    """Explicit numerical comparison of source vs recovered payload."""
+    return compare(original, recovered)
