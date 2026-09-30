@@ -47,10 +47,10 @@ def as_numpy(obj: ArrayLike, *, copy: bool = False) -> np.ndarray:
 class TensorSpec:
     """Declarative requirements for a tensor (source or target).
 
-    All fields are optional constraints. Missing fields mean \"no constraint\".
+    All fields are optional constraints. Missing fields mean "no constraint".
     """
 
-    dtype: Optional[str] = None          # e.g. \"float32\", \"int8\"
+    dtype: Optional[str] = None          # e.g. "float32", "int8"
     shape: Optional[Tuple[int, ...]] = None
     rank: Optional[int] = None
     layout: Optional[Layout] = None
@@ -61,23 +61,23 @@ class TensorSpec:
     signed: Optional[bool] = None
     scale: Optional[float] = None
     zero_point: Optional[int] = None
-    quantization: Optional[str] = None   # \"none\" | \"symmetric\" | \"asymmetric\" | \"affine\"
+    quantization: Optional[str] = None   # "none" | "symmetric" | "asymmetric" | "affine"
     alignment: Optional[int] = None      # byte alignment if required
     precision_bits: Optional[int] = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
         if self.layout is not None:
-            d[\"layout\"] = self.layout.value
+            d["layout"] = self.layout.value
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> \"TensorSpec\":
+    def from_dict(cls, d: dict) -> "TensorSpec":
         d = dict(d)
-        if \"layout\" in d and d[\"layout\"] is not None:
-            d[\"layout\"] = Layout(d[\"layout\"])
-        if \"shape\" in d and d[\"shape\"] is not None:
-            d[\"shape\"] = tuple(d[\"shape\"])
+        if "layout" in d and d["layout"] is not None:
+            d["layout"] = Layout(d["layout"])
+        if "shape" in d and d["shape"] is not None:
+            d["shape"] = tuple(d["shape"])
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
@@ -97,7 +97,7 @@ class BackendTensorSpec:
     max_elements: Optional[int] = None
     alignment: Optional[int] = None
     quantization_formats: Tuple[str, ...] = ()
-    notes: str = \"\"
+    notes: str = ""
 
     def accepts(self, spec: TensorSpec) -> bool:
         if spec.dtype and self.supported_dtypes and spec.dtype not in self.supported_dtypes:
@@ -110,6 +110,6 @@ class BackendTensorSpec:
             if self.max_rank is not None and spec.rank > self.max_rank:
                 return False
         if spec.quantization and self.quantization_formats:
-            if spec.quantization not in self.quantization_formats and spec.quantization != \"none\":
+            if spec.quantization not in self.quantization_formats and spec.quantization != "none":
                 return False
         return True
