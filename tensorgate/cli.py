@@ -81,6 +81,24 @@ def cmd_adapt(args):
     print(f"Wrote {out_path}")
 
 
+def cmd_model_inspect(args):
+    """Inspect a local Hugging Face / safetensors model directory."""
+    from .model import inspect_model
+
+    manifest = inspect_model(
+        args.model_dir,
+        model_id=args.model_id,
+        check_values=not args.no_value_check,
+    )
+    if args.json:
+        # Deterministic JSON: sorted keys, stable separators
+        print(json.dumps(manifest.to_dict(), indent=2, sort_keys=True, ensure_ascii=True))
+    else:
+        print(manifest.summary())
+        if manifest.validation_errors:
+            sys.exit(1)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="tensorgate",
@@ -124,6 +142,35 @@ def main(argv=None):
     p.add_argument("--target", required=True)
     p.add_argument("-o", "--output", default=None)
     p.set_defaults(func=cmd_adapt)
+
+    # --- model subcommand group ---
+    p_model = sub.add_parser("model", help="Multi-shard Hugging Face / safetensors model tools")
+    model_sub = p_model.add_subparsers(dest="model_command", required=True)
+
+    p_mi = model_sub.add_parser(
+        "inspect",
+        help="Inspect a local HF model directory (index + safetensors shards)",
+    )
+    p_mi.add_argument(
+        "model_dir",
+        help="Path to model directory (contains model.safetensors.index.json + shards)",
+    )
+    p_mi.add_argument(
+        "--model-id",
+        default=None,
+        help="Override model identifier (default: directory name)",
+    )
+    p_mi.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable deterministic JSON manifest",
+    )
+    p_mi.add_argument(
+        "--no-value-check",
+        action="store_true",
+        help="Skip per-tensor NaN/Inf scan (metadata + hashes only)",
+    )
+    p_mi.set_defaults(func=cmd_model_inspect)
 
     args = parser.parse_args(argv)
     args.func(args)
