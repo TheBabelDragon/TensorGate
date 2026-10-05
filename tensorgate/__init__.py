@@ -30,6 +30,13 @@ from .compatibility import check_compatibility, adapt, compare, CompatibilityRep
 from .serialization import save_tensor, load_tensor
 from .provenance import ProvenanceRecord, TransformationRecord
 from .layout import Layout
+from .model import (
+    ModelManifest,
+    TensorMeta,
+    ShardInfo,
+    inspect_model,
+    load_model_directory,
+)
 
 __all__ = [
     "__version__",
@@ -59,4 +66,9 @@ __all__ = [
     "ProvenanceRecord",
     "TransformationRecord",
     "Layout",
+    "ModelManifest",
+    "TensorMeta",
+    "ShardInfo",
+    "inspect_model",
+    "load_model_directory",
 ]
