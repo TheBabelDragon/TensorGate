@@ -25,6 +25,7 @@ arbitrary tensor / neural-network weights
 - Numerical representation and compatibility layer
 - Explicit, inspectable transformations (never silent)
 - Deterministic content hashing and provenance chains
+- Computational lineage (input/output identities, transform vs model version)
 - Thin adapters for WaveBridge / MetaField / operator ABI boundaries
 
 ## What TensorGate is NOT
@@ -108,6 +109,12 @@ tensorgate adapt weights.npy --target target.json
 3. **Boundary ownership.** TensorGate owns numbers. WaveBridge owns waveforms. MetaField owns fields. Operator ABI owns math. field-os owns admission.
 4. **Optional integrations only.** Core never imports MetaField or WaveBridge internals.
 
+## Shared Evidence Contract
+
+Computational lineage (`tensorgate.lineage`) records input/output identities,
+transformation or model version, and optional upstream evidence refs.
+See `docs/SHARED_EVIDENCE_CONTRACT.md`.
+
 ## Repository layout
 
 ```
@@ -122,13 +129,14 @@ tensorgate/
   layout.py
   serialization.py   # .npy + .tg.json side-car
   provenance.py      # TransformationRecord chain
+  lineage.py         # ComputationalLineage (Shared Evidence Contract)
   compatibility.py   # check_compatibility / adapt / compare
   errors.py
   cli.py
   integrations/
-    wavebridge.py    # thin numerical payload adapter
-    metafield.py     # numerical state boundary
-    operator_abi.py  # pre/post operator validation
+    wavebridge.py
+    metafield.py
+    operator_abi.py
 tests/
 examples/
 docs/
