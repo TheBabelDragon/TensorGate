@@ -29,6 +29,15 @@ from .quantize import quantize, dequantize
 from .compatibility import check_compatibility, adapt, compare, CompatibilityReport
 from .serialization import save_tensor, load_tensor
 from .provenance import ProvenanceRecord, TransformationRecord
+from .lineage import (
+    ComputationKind,
+    TensorIdentity,
+    ComputationalLineage,
+    build_lineage,
+    check_lineage_schema,
+    attach_evidence_ref,
+    identity_from_descriptor,
+)
 from .layout import Layout
 
 __all__ = [
@@ -58,5 +67,12 @@ __all__ = [
     "load_tensor",
     "ProvenanceRecord",
     "TransformationRecord",
+    "ComputationKind",
+    "TensorIdentity",
+    "ComputationalLineage",
+    "build_lineage",
+    "check_lineage_schema",
+    "attach_evidence_ref",
+    "identity_from_descriptor",
     "Layout",
 ]
