@@ -12,7 +12,7 @@ from tensorgate.api import (
     negotiate,
     validate_lineage_dict,
 )
-from tensorgate.lineage import ComputationKind, ComputationalLineage, build_lineage
+from tensorgate.lineage import ComputationKind, ComputationalLineage
 
 
 def test_health():
@@ -73,19 +73,18 @@ def test_accept_valid_deterministic():
 
 
 def test_lineage_to_contract_roundtrip():
-    lin = build_lineage(
+    lin = ComputationalLineage(
         kind=ComputationKind.DETERMINISTIC,
         transformation_id="identity",
     )
     d = lineage_to_contract(lin)
     assert d["api_schema_id"] == "tensorgate.lineage_api"
     assert d["api_schema_version"] == API_SCHEMA_VERSION
-    # Must not invent validity for peer payloads missing hashes when re-validated
     with pytest.raises(LineageApiError):
         validate_lineage_dict(
             {
                 "schema_id": "tensorgate.lineage",
                 "kind": "DETERMINISTIC",
-                "output": {"dtype": "float32"},  # no hash
+                "output": {"dtype": "float32"},
             }
         )
