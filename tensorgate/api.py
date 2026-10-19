@@ -8,9 +8,9 @@ ComputationalLineage dicts with explicit fail-closed checks.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from .lineage import ComputationalLineage, ComputationKind, build_lineage
+from .lineage import ComputationalLineage, ComputationKind
 
 API_SCHEMA_ID = "tensorgate.lineage_api"
 API_SCHEMA_VERSION = "1.0.0"
@@ -52,33 +52,23 @@ def validate_lineage_dict(data: dict[str, Any]) -> ComputationalLineage:
     schema_id = data.get("schema_id") or "tensorgate.lineage"
     if schema_id not in ("tensorgate.lineage", API_SCHEMA_ID):
         raise LineageApiError(f"unknown schema_id: {schema_id}")
-    version = str(data.get("schema_version") or "0.1.0")
-    # Accept 0.x and 1.x lineage payloads already in the wild
-    kind_raw = data.get("kind") or ComputationKind.DETERMINISTIC.value
+
+    kind_raw = str(data.get("kind") or "DETERMINISTIC").upper()
     try:
-        kind = ComputationKind(kind_raw) if not isinstance(kind_raw, ComputationKind) else kind_raw
+        kind = ComputationKind(kind_raw)
     except Exception as e:
         raise LineageApiError(f"invalid computation kind: {e}") from e
 
-    if kind == ComputationKind.DETERMINISTIC and data.get("model_id"):
+    model_id = str(data.get("model_id") or "")
+    if kind == ComputationKind.DETERMINISTIC and model_id:
         raise LineageApiError("DETERMINISTIC lineage cannot claim model_id")
 
-    # Require output hash when output present
     output = data.get("output")
-    if isinstance(output, dict) and not output.get("content_hash") and not output.get("hash"):
-        raise LineageApiError("output missing content hash")
+    if isinstance(output, dict):
+        if not (output.get("content_hash") or output.get("hash")):
+            raise LineageApiError("output missing content hash")
 
-    return ComputationalLineage(
-        kind=kind,
-        transformation_id=str(data.get("transformation_id") or ""),
-        transformation_version=str(data.get("transformation_version") or ""),
-        model_id=data.get("model_id"),
-        model_version=data.get("model_version"),
-        schema_id=str(data.get("schema_id") or "tensorgate.lineage"),
-        schema_version=version,
-        evidence_refs=list(data.get("evidence_refs") or []),
-        extras=dict(data.get("extras") or {}),
-    )
+    return ComputationalLineage.from_dict(data)
 
 
 def lineage_to_contract(lineage: ComputationalLineage) -> dict[str, Any]:
