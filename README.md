@@ -104,6 +104,10 @@ tensorgate adapt weights.npy --target target.json
 # Multi-shard Hugging Face / safetensors model inspection
 tensorgate model inspect ./Qwen3-4B
 tensorgate model inspect ./Qwen3-4B --json
+
+# Verified transformation of selected tensors (source never modified)
+tensorgate model transform ./Qwen3-4B ./Qwen3-4B-norm \
+  --transform model.embed_tokens.weight=normalize:method=symmetric
 ```
 
 ## Design rules
@@ -138,6 +142,7 @@ tensorgate/
   errors.py
   cli.py
   model.py           # HF/safetensors multi-shard model inspection + ModelManifest
+  model_transform.py # verified model-artifact transformation + evidence report
   integrations/
     wavebridge.py
     metafield.py
@@ -145,6 +150,7 @@ tensorgate/
 tests/
 examples/
 docs/
+  MODEL_TRANSFORM.md # verified transformation guide
 ```
 
 ## Tests

@@ -46,6 +46,14 @@ from .model import (
     inspect_model,
     load_model_directory,
 )
+from .model_transform import (
+    TensorTransformSpec,
+    TensorTransformResult,
+    ModelTransformReport,
+    transform_model,
+    transform_model_report_path,
+    SUPPORTED_OPS,
+)
 
 __all__ = [
     "__version__",
@@ -87,4 +95,10 @@ __all__ = [
     "ShardInfo",
     "inspect_model",
     "load_model_directory",
+    "TensorTransformSpec",
+    "TensorTransformResult",
+    "ModelTransformReport",
+    "transform_model",
+    "transform_model_report_path",
+    "SUPPORTED_OPS",
 ]
