@@ -100,6 +100,10 @@ tensorgate convert weights.npy --dtype float16
 tensorgate compare original.npy reconstructed.npy
 tensorgate compatibility weights.npy --target target.json
 tensorgate adapt weights.npy --target target.json
+
+# Multi-shard Hugging Face / safetensors model inspection
+tensorgate model inspect ./Qwen3-4B
+tensorgate model inspect ./Qwen3-4B --json
 ```
 
 ## Design rules
@@ -133,6 +137,7 @@ tensorgate/
   compatibility.py   # check_compatibility / adapt / compare
   errors.py
   cli.py
+  model.py           # HF/safetensors multi-shard model inspection + ModelManifest
   integrations/
     wavebridge.py
     metafield.py

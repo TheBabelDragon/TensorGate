@@ -39,6 +39,13 @@ from .lineage import (
     identity_from_descriptor,
 )
 from .layout import Layout
+from .model import (
+    ModelManifest,
+    TensorMeta,
+    ShardInfo,
+    inspect_model,
+    load_model_directory,
+)
 
 __all__ = [
     "__version__",
@@ -75,4 +82,9 @@ __all__ = [
     "attach_evidence_ref",
     "identity_from_descriptor",
     "Layout",
+    "ModelManifest",
+    "TensorMeta",
+    "ShardInfo",
+    "inspect_model",
+    "load_model_directory",
 ]
