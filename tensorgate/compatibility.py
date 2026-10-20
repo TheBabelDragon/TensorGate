@@ -19,13 +19,7 @@ from .transform import convert_dtype, clip
 
 @dataclass
 class CompatibilityReport:
-    """Structured compatibility result.
-
-    status:
-      - "compatible"   : already satisfies target (no transform needed)
-      - "adaptable"    : can be made compatible via recorded transforms
-      - "incompatible" : hard failure (e.g. shape/rank mismatch)
-    """
+    """Structured compatibility result."""
 
     compatible: bool
     status: str = "compatible"
@@ -51,7 +45,7 @@ def check_compatibility(
     source: ArrayLike | TensorSpec,
     target: TensorSpec,
 ) -> CompatibilityReport:
-    """Evaluate whether source satisfies target constraints. Does not mutate."""
+    """Evaluate whether source satisfies target constraints."""
     issues: List[str] = []
     if isinstance(source, TensorSpec):
         src_spec = source
@@ -103,23 +97,30 @@ def check_compatibility(
 
 
 def compare(original: ArrayLike, reconstructed: ArrayLike) -> Dict[str, Any]:
-    """Deterministic error analysis between two tensors of equal shape."""
-    a = as_numpy(original).astype(np.float64)
-    b = as_numpy(reconstructed).astype(np.float64)
+    """Error analysis between two tensors (real or complex)."""
+    a = as_numpy(original)
+    b = as_numpy(reconstructed)
     if a.shape != b.shape:
         raise ValueError(f"Shape mismatch for compare: {a.shape} vs {b.shape}")
+    if np.issubdtype(a.dtype, np.complexfloating) or np.issubdtype(b.dtype, np.complexfloating):
+        a = a.astype(np.complex128, copy=False)
+        b = b.astype(np.complex128, copy=False)
+    else:
+        a = a.astype(np.float64, copy=False)
+        b = b.astype(np.float64, copy=False)
     diff = a - b
     abs_diff = np.abs(diff)
     max_abs = float(np.max(abs_diff)) if abs_diff.size else 0.0
     mean_abs = float(np.mean(abs_diff)) if abs_diff.size else 0.0
-    rms = float(np.sqrt(np.mean(diff * diff))) if diff.size else 0.0
+    rms = float(np.sqrt(np.mean(np.real(diff * np.conj(diff))))) if diff.size else 0.0
     eps = 1e-12
-    mask = np.abs(a) > eps
-    rel = np.abs(diff[mask] / a[mask]) if mask.any() else np.array([])
+    abs_a = np.abs(a)
+    mask = abs_a > eps
+    rel = (abs_diff[mask] / abs_a[mask]) if mask.any() else np.array([])
     max_rel = float(np.max(rel)) if rel.size else 0.0
     mean_rel = float(np.mean(rel)) if rel.size else 0.0
-    signal_power = float(np.mean(a * a)) if a.size else 0.0
-    noise_power = float(np.mean(diff * diff)) if diff.size else 0.0
+    signal_power = float(np.mean(np.real(a * np.conj(a)))) if a.size else 0.0
+    noise_power = float(np.mean(np.real(diff * np.conj(diff)))) if diff.size else 0.0
     sqnr_db = 10.0 * np.log10(signal_power / max(noise_power, eps)) if signal_power > 0 else float("inf")
     changed = int(np.sum(abs_diff > 0))
     return {
@@ -140,11 +141,7 @@ def adapt(
     *,
     raise_on_incompatible: bool = False,
 ) -> Tuple[np.ndarray, CompatibilityReport]:
-    """Adapt tensor to target spec. Returns (adapted_tensor, report).
-
-    All numerical changes are recorded in the provenance chain.
-    Never silently alters meaning.
-    """
+    """Adapt tensor to target spec. Returns (adapted_tensor, report)."""
     arr = as_numpy(tensor, copy=True)
     original = arr.copy()
     desc = analyze(arr)
@@ -180,7 +177,7 @@ def adapt(
     if need_range and tmin is not None and tmax is not None:
         out, meta = normalize(arr, method="range", target_min=tmin, target_max=tmax)
         arr = out
-        transforms.append(f"normalize/range → [{tmin}, {tmax}]")
+        transforms.append(f"normalize/range -> [{tmin}, {tmax}]")
         for p in meta.get("provenance", []):
             prov.append(make_record(
                 operation=p["operation"],
@@ -217,7 +214,7 @@ def adapt(
     if target.dtype and str(arr.dtype) != target.dtype:
         out, meta = convert_dtype(arr, target.dtype, casting="unsafe")
         arr = out
-        transforms.append(f"convert_dtype → {target.dtype}")
+        transforms.append(f"convert_dtype -> {target.dtype}")
         for p in meta.get("provenance", []):
             prov.append(make_record(
                 operation=p["operation"],
@@ -228,8 +225,8 @@ def adapt(
 
     final_desc = analyze(arr)
     try:
-        recon = arr.astype(np.float64)
-        err = compare(original.astype(np.float64), recon)
+        recon = arr.astype(np.float64) if not np.issubdtype(arr.dtype, np.complexfloating) else arr
+        err = compare(original, recon)
     except Exception:
         err = {}
 
