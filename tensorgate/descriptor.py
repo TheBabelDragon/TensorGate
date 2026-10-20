@@ -1,4 +1,4 @@
-"""TensorDescriptor — full numerical and structural description of a tensor."""
+"""TensorDescriptor - full numerical and structural description of a tensor."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ class TensorDescriptor:
         ]
         if self.scale is not None or self.zero_point is not None:
             lines.append(f"scale={self.scale}  zero_point={self.zero_point}  quant={self.quantization}")
-        lines.append(f"hash={self.content_hash[:16]}…")
+        lines.append(f"hash={self.content_hash[:16]}...")
         return "\n".join(lines)
 
 
@@ -108,16 +108,25 @@ def build_descriptor(
     dtype = _dtype_str(arr.dtype)
     layout = Layout.from_numpy(arr).value
 
-    if np.issubdtype(arr.dtype, np.floating) or np.issubdtype(arr.dtype, np.complexfloating):
+    is_complex = np.issubdtype(arr.dtype, np.complexfloating)
+    is_float = np.issubdtype(arr.dtype, np.floating)
+
+    if is_float or is_complex:
         nan_mask = np.isnan(flat)
-        pos_inf = np.isposinf(flat)
-        neg_inf = np.isneginf(flat)
         nan_count = int(nan_mask.sum())
-        pos_inf_count = int(pos_inf.sum())
-        neg_inf_count = int(neg_inf.sum())
         finite_mask = np.isfinite(flat)
         finite_vals = flat[finite_mask]
         finite = bool(finite_mask.all())
+        if is_complex:
+            # np.isposinf / isneginf are undefined for complex; use isinf.
+            inf_mask = np.isinf(flat)
+            imag_inf = np.isinf(np.imag(flat))
+            pos_inf_count = int((np.isposinf(np.real(flat)) | imag_inf).sum())
+            neg_inf_count = int(np.isneginf(np.real(flat)).sum())
+            _ = inf_mask
+        else:
+            pos_inf_count = int(np.isposinf(flat).sum())
+            neg_inf_count = int(np.isneginf(flat).sum())
     else:
         nan_count = pos_inf_count = neg_inf_count = 0
         finite_vals = flat
@@ -127,13 +136,22 @@ def build_descriptor(
     sparsity = float(zero_count / n) if n else 0.0
 
     if finite_vals.size:
-        f = finite_vals.astype(np.float64, copy=False)
-        mn = float(f.min())
-        mx = float(f.max())
-        mean = float(f.mean())
-        std = float(f.std())
-        rms = float(np.sqrt(np.mean(f * f)))
-        abs_max = float(np.max(np.abs(f)))
+        if is_complex:
+            mag = np.abs(finite_vals).astype(np.float64, copy=False)
+            mn = float(mag.min())
+            mx = float(mag.max())
+            mean = float(mag.mean())
+            std = float(mag.std())
+            rms = float(np.sqrt(np.mean(mag * mag)))
+            abs_max = float(mag.max())
+        else:
+            f = finite_vals.astype(np.float64, copy=False)
+            mn = float(f.min())
+            mx = float(f.max())
+            mean = float(f.mean())
+            std = float(f.std())
+            rms = float(np.sqrt(np.mean(f * f)))
+            abs_max = float(np.max(np.abs(f)))
     else:
         mn = mx = mean = std = rms = abs_max = None
 
