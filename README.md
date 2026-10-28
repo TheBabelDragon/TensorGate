@@ -4,22 +4,6 @@
 
 Canonical numerical compatibility boundary for tensors and neural-network weights across the BabelDragon compute stack.
 
-```
-arbitrary tensor / neural-network weights
-        ↓
-    inspect
-        ↓
-    describe
-        ↓
-    normalize / transform
-        ↓
-    validate
-        ↓
-    serialize
-        ↓
-    hand to another model, operator, accelerator, or physical transport
-```
-
 ## What TensorGate is
 
 - Numerical representation and compatibility layer
@@ -27,37 +11,21 @@ arbitrary tensor / neural-network weights
 - Deterministic content hashing and provenance chains
 - Computational lineage (input/output identities, transform vs model version)
 - Thin adapters for WaveBridge / MetaField / operator ABI boundaries
+- **Latent-state representation contract** for Neuralese-compatible boundary exchange
 
 ## What TensorGate is NOT
 
 | System | Role |
 |--------|------|
-| **WaveBridge** | Physical waveform transport (WAV, optical, serial) |
-| **MetaField** | Field / intelligence semantics and learned geometry |
-| **metafield-operator-abi** | Mathematical operator contracts (Wilson–Dirac etc.) |
-| **field-os** | Observation / state admission and replay |
-| **Aurora** | Distributed artifact identity / history / transport |
-| **MultiFlow / FreightFlow** | Scheduling and freight coordination (independent) |
-
-```
-neural weights
-     ↓
-  TensorGate
-     ↓
-normalized tensor
-     ↓
-  ┌───────┬────────┐
-  ↓       ↓        ↓
-model   operator WaveBridge
-runtime   ABI      physical transport
-```
+| **WaveBridge** | Physical waveform transport |
+| **MetaField** | Field / intelligence semantics |
+| **field-os** | Observation / state admission |
+| **Neuralese runtime** | Inference / latent recurrence (out of scope) |
 
 ## Install
 
 ```bash
 pip install -e .
-# optional
-pip install -e ".[torch]"
 pip install -e ".[dev]"
 ```
 
@@ -70,88 +38,39 @@ import numpy as np
 from tensorgate import analyze, normalize, adapt, TensorSpec, compare
 
 w = np.random.randn(128, 64).astype(np.float32)
-
-# Inspect
 desc = analyze(w)
-print(desc.summary())
-
-# Explicit normalize (always returns metadata)
 out, meta = normalize(w, method="symmetric")
-print(meta["scale"], meta["provenance"])
-
-# Adapt to a target constraint set
-target = TensorSpec(dtype="float16", min_value=-1.0, max_value=1.0)
-adapted, report = adapt(w, target)
-print(report.transformations)
-print(report.error_metrics)
-
-# Round-trip error
-err = compare(w, adapted.astype(np.float32))
-print(err["max_absolute_error"])
 ```
 
-## CLI
+## Latent-state representation (Neuralese contract)
 
-```bash
-tensorgate inspect weights.npy
-tensorgate analyze weights.npy
-tensorgate normalize weights.npy --method symmetric
-tensorgate convert weights.npy --dtype float16
-tensorgate compare original.npy reconstructed.npy
-tensorgate compatibility weights.npy --target target.json
-tensorgate adapt weights.npy --target target.json
+TensorGate provides a **versioned latent-state representation contract** for
+identifying, comparing, and serializing neural latent tensors at numerical
+boundaries — without becoming an inference runtime.
 
-# Multi-shard Hugging Face / safetensors model inspection
-tensorgate model inspect ./Qwen3-4B
-tensorgate model inspect ./Qwen3-4B --json
+Matching shape and dtype alone do **not** imply semantic compatibility across
+models or layers.
 
-# Verified transformation of selected tensors (source never modified)
-tensorgate model transform ./Qwen3-4B ./Qwen3-4B-norm \
-  --transform model.embed_tokens.weight=normalize:method=symmetric
+See [docs/NEURALESE_REPRESENTATION_CONTRACT.md](docs/NEURALESE_REPRESENTATION_CONTRACT.md).
+
+```python
+import numpy as np
+from tensorgate import LatentStateSpec, describe_latent_state, check_latent_compatibility
+
+x = np.zeros((4, 32), dtype=np.float32)
+spec = LatentStateSpec(
+    shape=(4, 32), dtype="float32",
+    representation_semantics="hidden_state",
+    model_id="demo", layer_id="block.0",
+)
+print(describe_latent_state(x, spec).latent_id[:16])
 ```
-
-## Design rules
-
-1. **No silent numerical changes.** Every transformation produces a recorded provenance step (source range, scale, offset, clipping, quantization, precision loss).
-2. **Deterministic identity.** Content hash covers canonical bytes + dtype + shape + representation metadata.
-3. **Boundary ownership.** TensorGate owns numbers. WaveBridge owns waveforms. MetaField owns fields. Operator ABI owns math. field-os owns admission.
-4. **Optional integrations only.** Core never imports MetaField or WaveBridge internals.
 
 ## Shared Evidence Contract
 
 Computational lineage (`tensorgate.lineage`) records input/output identities,
 transformation or model version, and optional upstream evidence refs.
 See `docs/SHARED_EVIDENCE_CONTRACT.md`.
-
-## Repository layout
-
-```
-tensorgate/
-  __init__.py
-  tensor.py          # TensorSpec, BackendTensorSpec, as_numpy
-  descriptor.py      # TensorDescriptor + content hash
-  inspect.py         # analyze / describe
-  normalize.py       # range / maxabs / standard / symmetric / affine
-  transform.py       # dtype, clip, transform
-  quantize.py        # quantize / dequantize
-  layout.py
-  serialization.py   # .npy + .tg.json side-car
-  provenance.py      # TransformationRecord chain
-  lineage.py         # ComputationalLineage (Shared Evidence Contract)
-  compatibility.py   # check_compatibility / adapt / compare
-  errors.py
-  cli.py
-  model.py           # HF/safetensors multi-shard model inspection + ModelManifest
-  model_transform.py # verified model-artifact transformation + evidence report
-  integrations/
-    wavebridge.py
-    metafield.py
-    operator_abi.py
-tests/
-examples/
-docs/
-  MODEL_TRANSFORM.md # verified transformation guide
-```
 
 ## Tests
 
