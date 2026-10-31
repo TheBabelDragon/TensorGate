@@ -165,7 +165,6 @@ def _schema_major(version: str) -> Optional[int]:
 
 
 def latent_content_hash(arr: np.ndarray, spec: LatentStateSpec) -> str:
-    """Content hash: tensor bytes + identity-relevant latent metadata."""
     base = _content_hash(arr, {"layout": spec.layout})
     h = hashlib.sha256()
     h.update(base.encode("utf-8"))
@@ -344,7 +343,10 @@ def check_latent_compatibility(
         notes.append("representation_semantics missing; semantic interchangeability unproven")
 
     dtype_match = str(np.dtype(source.dtype)) == str(np.dtype(target.dtype))
-    layout_match = source.layout == target.layout or "unknown" in (source.layout, target.layout)
+    layout_match = source.layout == target.layout or "unknown" in (
+        source.layout,
+        target.layout,
+    )
 
     if not dtype_match:
         if allow_dtype_conversion:
@@ -355,11 +357,12 @@ def check_latent_compatibility(
         else:
             issues.append(f"dtype mismatch: {source.dtype} vs {target.dtype}")
 
+    # Layout is independent of dtype conversion permission.
     if not layout_match and source.layout != "unknown" and target.layout != "unknown":
-        if allow_dtype_conversion:
-            notes.append(f"layout differs ({source.layout} vs {target.layout})")
-        else:
-            issues.append(f"layout mismatch: {source.layout} vs {target.layout}")
+        issues.append(
+            f"layout mismatch: {source.layout} vs {target.layout} "
+            "(dtype conversion does not imply layout conversion)"
+        )
 
     src_d = source.to_dict()
     tgt_d = target.to_dict()
@@ -374,25 +377,34 @@ def check_latent_compatibility(
             target_spec=tgt_d,
         )
 
+    if missing_meta:
+        extra = [
+            "INCONCLUSIVE: required producer/layer/semantics metadata incomplete; "
+            "do not treat as interchangeable"
+        ]
+        if not dtype_match and allow_dtype_conversion:
+            extra.append(
+                "dtype conversion is permitted but does not resolve missing metadata "
+                "or prove semantic equivalence"
+            )
+        return LatentCompatibilityReport(
+            level=LatentCompatibilityLevel.INCONCLUSIVE,
+            compatible=False,
+            issues=[],
+            notes=notes + extra,
+            source_spec=src_d,
+            target_spec=tgt_d,
+        )
+
     if not dtype_match and allow_dtype_conversion:
         return LatentCompatibilityReport(
             level=LatentCompatibilityLevel.NUMERICAL_CONVERTIBLE,
             compatible=True,
             issues=[],
-            notes=notes,
-            source_spec=src_d,
-            target_spec=tgt_d,
-        )
-
-    if missing_meta:
-        return LatentCompatibilityReport(
-            level=LatentCompatibilityLevel.INCONCLUSIVE,
-            compatible=False,
-            issues=[],
             notes=notes
             + [
-                "INCONCLUSIVE: required producer/layer/semantics metadata incomplete; "
-                "do not treat as interchangeable"
+                "NUMERICAL_CONVERTIBLE: dtype conversion permitted; "
+                "does not prove semantic equivalence"
             ],
             source_spec=src_d,
             target_spec=tgt_d,
@@ -417,6 +429,19 @@ def compare_latent_states(
     rtol: float = 1e-5,
     atol: float = 1e-8,
 ) -> Dict[str, Any]:
+    """Compare latent states without transforming them.
+
+    Complex arrays use complex128; imaginary components are never discarded.
+    max_abs_diff/rmse use complex magnitude. Cosine is Hermitian for complex.
+    Non-finite elements yield partial_nonfinite, not full compared success.
+    rtol/atol must be finite and non-negative.
+    """
+    for name, val in (("rtol", rtol), ("atol", atol)):
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            raise ValidationError(f"{name} must be a real number; got {type(val)!r}")
+        if not np.isfinite(val) or val < 0:
+            raise ValidationError(f"{name} must be finite and non-negative; got {val!r}")
+
     arr_a = as_numpy(a)
     arr_b = as_numpy(b)
     compat = check_latent_compatibility(spec_a, spec_b)
@@ -428,48 +453,88 @@ def compare_latent_states(
         "metrics": {},
         "status": "skipped",
     }
+
     if tuple(arr_a.shape) != tuple(arr_b.shape):
         result["status"] = "incompatible_shape"
         result["issues"] = [f"array shape mismatch: {arr_a.shape} vs {arr_b.shape}"]
         return result
+
     if not np.issubdtype(arr_a.dtype, np.number) or not np.issubdtype(arr_b.dtype, np.number):
         result["status"] = "non_numeric"
         return result
-    x = arr_a.astype(np.float64, copy=False)
-    y = arr_b.astype(np.float64, copy=False)
+
+    is_complex = np.iscomplexobj(arr_a) or np.iscomplexobj(arr_b)
+    if is_complex:
+        x = np.asarray(arr_a, dtype=np.complex128)
+        y = np.asarray(arr_b, dtype=np.complex128)
+    else:
+        x = np.asarray(arr_a, dtype=np.float64)
+        y = np.asarray(arr_b, dtype=np.float64)
+
     finite_mask = np.isfinite(x) & np.isfinite(y)
     n_finite = int(np.count_nonzero(finite_mask))
     n_total = int(x.size) if x.size else 0
+    n_nonfinite = n_total - n_finite
+
     if n_finite == 0:
         result["status"] = "no_finite_values"
         result["metrics"] = {
             "n_finite": 0,
             "n_total": n_total,
+            "n_nonfinite": n_nonfinite,
             "max_abs_diff": None,
             "rmse": None,
             "cosine": None,
+            "allclose": False,
+            "rtol": float(rtol),
+            "atol": float(atol),
+            "complex": bool(is_complex),
         }
         return result
+
     dx = x[finite_mask]
     dy = y[finite_mask]
-    diff = dx - dy
-    max_abs = float(np.max(np.abs(diff)))
-    rmse = float(np.sqrt(np.mean(diff * diff)))
-    na = float(np.linalg.norm(dx))
-    nb = float(np.linalg.norm(dy))
-    cosine = float(np.dot(dx, dy) / (na * nb)) if na > 0 and nb > 0 else None
+    abs_diff = np.abs(dx - dy)
+    max_abs = float(np.max(abs_diff))
+    rmse = float(np.sqrt(np.mean(np.square(abs_diff))))
+
+    if is_complex:
+        na = float(np.sqrt(np.sum(np.abs(dx) ** 2)))
+        nb = float(np.sqrt(np.sum(np.abs(dy) ** 2)))
+        if na > 0 and nb > 0:
+            inner = np.vdot(dx, dy)
+            cosine = float(np.real(inner) / (na * nb))
+        else:
+            cosine = None
+        result["metrics_note"] = (
+            "complex cosine uses Hermitian convention Re(<a,b>)/(|a||b|); "
+            "None when either norm is zero"
+        )
+    else:
+        na = float(np.linalg.norm(dx))
+        nb = float(np.linalg.norm(dy))
+        cosine = float(np.dot(dx, dy) / (na * nb)) if na > 0 and nb > 0 else None
+
     close = bool(np.allclose(dx, dy, rtol=rtol, atol=atol))
     result["metrics"] = {
         "n_finite": n_finite,
         "n_total": n_total,
+        "n_nonfinite": n_nonfinite,
         "max_abs_diff": max_abs,
         "rmse": rmse,
         "cosine": cosine,
         "allclose": close,
-        "rtol": rtol,
-        "atol": atol,
+        "rtol": float(rtol),
+        "atol": float(atol),
+        "complex": bool(is_complex),
     }
-    result["status"] = "compared"
+    if n_nonfinite > 0:
+        result["status"] = "partial_nonfinite"
+        result["notes"] = [
+            f"{n_nonfinite} non-finite element(s) excluded; metrics are over finite subset only"
+        ]
+    else:
+        result["status"] = "compared"
     return result
 
 

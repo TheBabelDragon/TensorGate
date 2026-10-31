@@ -28,127 +28,63 @@ descriptor, compatibility, and lineage infrastructure.
 This contract does **not** standardize the *meaning* of hidden states across
 arbitrary models, layers, or architectures.
 
-## Schema
-
-| Field | Identity-relevant | Required | Description |
-|-------|-------------------|----------|-------------|
-| `schema_id` | yes | yes | `tensorgate.latent_state` |
-| `schema_version` | yes | yes | Semver; major must be supported (currently `1`) |
-| `shape` | yes | yes | Tensor shape |
-| `dtype` | yes | yes | NumPy dtype string |
-| `layout` | yes | yes | `C`, `F`, or `unknown` |
-| `representation_semantics` | yes | for EXACT | Free-form semantic label (e.g. `hidden_state`) |
-| `model_id` | yes | for EXACT | Producer model identifier |
-| `model_revision` | yes | no | Weight/revision or manifest hash |
-| `architecture_id` | yes | no | Architecture family identifier |
-| `layer_id` | yes | for EXACT | Layer/block identifier |
-| `sequence_position` | yes | no | Timestep / sequence index |
-| `runtime_id` | no | no | Optional runtime tag |
-| `mask_id` / `reference_id` | no | no | Optional interpretation aids |
-| `extras` | no | no | Non-identity annotations only |
-
-Missing optional fields are **not** treated as verified compatibility.
-
-## Identity and serialization
-
-Latent identity reuses TensorGate's SHA-256 content hash over little-endian
-array bytes, augmented with identity-relevant latent metadata (schema, model,
-layer, semantics, layout, …).
-
-```python
-import numpy as np
-from tensorgate import (
-    LatentStateSpec,
-    describe_latent_state,
-    serialize_latent_state,
-    deserialize_latent_state,
-    check_latent_compatibility,
-)
-
-arr = np.zeros((2, 16), dtype=np.float32)
-spec = LatentStateSpec(
-    shape=(2, 16),
-    dtype="float32",
-    representation_semantics="hidden_state",
-    model_id="toy-mlp",
-    model_revision="sha256:abc",
-    architecture_id="mlp-v1",
-    layer_id="block.0",
-)
-
-desc = describe_latent_state(arr, spec)
-envelope = serialize_latent_state(arr, spec)
-arr2, spec2, ident = deserialize_latent_state(envelope, require_data=True)
-assert ident.content_hash == envelope["latent_id"]
-```
-
-Deserialization is **fail-closed**: malformed JSON, unsupported schema major
-versions, shape/dtype inconsistency, and declared/recomputed identity mismatch
-raise `SerializationError` / `ValidationError`.
-
-Filesystem paths and timestamps must not be placed in identity fields.
-
 ## Compatibility levels
 
 | Level | Meaning |
 |-------|---------|
 | `exact` | Schema, shape, dtype/layout, producer, layer, and semantics align |
-| `numerical_convertible` | Shape matches; dtype/layout differ but conversion is explicitly allowed |
-| `incompatible` | Hard mismatch (shape, schema major, model/layer, …) |
+| `numerical_convertible` | Shape matches; dtype differs but conversion is explicitly allowed; other checks pass |
+| `incompatible` | Hard mismatch (shape, schema major, model/layer, **layout**, …) |
 | `inconclusive` | Required producer/layer/semantics metadata missing |
 
 Matching shape and dtype **alone never** yield `exact` compatibility across
 different models or layers.
 
-```python
-from tensorgate import LatentStateSpec, check_latent_compatibility
+### Compatibility precedence
 
-a = LatentStateSpec(
-    shape=(8,), dtype="float32", representation_semantics="h",
-    model_id="A", layer_id="enc.0",
-)
-b = LatentStateSpec(
-    shape=(8,), dtype="float32", representation_semantics="h",
-    model_id="B", layer_id="enc.0",
-)
-report = check_latent_compatibility(a, b)
-assert report.compatible is False  # different models
-```
+1. **Hard incompatibilities** (schema, shape, model, layer, layout, …) → `INCOMPATIBLE`
+2. **Missing required metadata** → `INCONCLUSIVE` (even if dtype conversion is allowed)
+3. **Dtype differs + conversion allowed + complete metadata** → `NUMERICAL_CONVERTIBLE`
+4. Otherwise → `EXACT`
 
-## Comparison
+`allow_dtype_conversion=True` permits **dtype** mismatch only. It does **not**
+permit layout mismatch and does **not** prove semantic equivalence.
 
-`compare_latent_states` reports numerical metrics (max abs diff, RMSE, cosine)
-without transforming either array. Shape mismatches are reported; arrays are
-not silently aligned.
+## Comparison conventions (hardened)
+
+### Complex arrays
+
+Complex inputs are promoted to `complex128` and compared in complex arithmetic.
+Imaginary components are **never** discarded via real float casting.
+
+| Metric | Definition |
+|--------|------------|
+| `max_abs_diff` | max \|aᵢ − bᵢ\| (complex magnitude) |
+| `rmse` | √(mean(\|aᵢ − bᵢ\|²)) |
+| `cosine` | Hermitian: Re(⟨a,b⟩) / (\|a\|\|b\|); `None` if either norm is zero |
+
+### Non-finite values
+
+- All non-finite → status `no_finite_values`
+- Mixed finite / non-finite → status `partial_nonfinite` (metrics over finite subset only)
+- Full finite → status `compared`
+
+### Tolerances
+
+`rtol` and `atol` must be finite and non-negative; otherwise `ValidationError`.
+
+## Identity and serialization
+
+Latent identity reuses TensorGate's SHA-256 content hash over little-endian
+array bytes, augmented with identity-relevant latent metadata.
+
+Deserialization is **fail-closed** on malformed data, unsupported schema major
+versions, and identity mismatches.
 
 ## Lineage
 
-Use `build_latent_lineage` to record boundary crossings. **Default kind for
-model hidden-state generation is `NONDETERMINISTIC`**: the ability to hash an
-output tensor does not make the generating computation reproducible.
-
-Deterministic dtype/layout conversions may use `ComputationKind.DETERMINISTIC`
-and must not set `model_id`.
-
-## Model-specific limitations
-
-- Latent geometry is model- and layer-specific; this contract only records
-  declared metadata.
-- No cross-model mapping is provided or implied.
-- Float16/complex support follows NumPy; quantization of latents is out of
-  scope here (use TensorGate quantize APIs explicitly if needed).
-
-## Consuming from a future Neuralese runtime
-
-A research runtime can depend on this contract by:
-
-1. Emitting `LatentStateSpec` + serialized envelopes at layer boundaries.
-2. Checking `check_latent_compatibility` before reuse.
-3. Attaching `build_latent_lineage` records to evidence bundles.
-
-The runtime should treat TensorGate as a **numerical boundary library**, not
-as an inference engine. TensorGate must not grow model-execution features to
-satisfy Neuralese experiments.
+Default kind for model hidden-state generation is `NONDETERMINISTIC`.
+Hashing an output tensor does not make the generating computation reproducible.
 
 ## Related docs
 
